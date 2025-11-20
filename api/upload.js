@@ -1,57 +1,43 @@
+import fs from "fs";
+
 export const config = {
-    api: {
-        bodyParser: false
-    }
+    api: { bodyParser: false }, // lemos o body bruto
 };
 
-import { IncomingForm } from "formidable";
-import fs from "fs";
-import path from "path";
+export default async function handler(req, res) {
+    const filePath = "/tmp/image.jpg";
 
-export default function handler(req, res) {
-    // LIBERA CORS
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
-    if (req.method === "OPTIONS") {
-        return res.status(200).end();
+    // GET para visualizar a imagem: /api/image?show=1
+    if (req.method === "GET" && req.query.show) {
+        if (!fs.existsSync(filePath)) {
+            return res.status(404).json({ error: "Nenhuma imagem salva." });
+        }
+        const image = fs.readFileSync(filePath);
+        res.setHeader("Content-Type", "image/jpeg");
+        return res.send(image);
     }
 
+    // Apenas POST para upload
     if (req.method !== "POST") {
-        return res.status(405).json({ error: "Method not allowed" });
+        return res.status(405).json({ error: "Use POST para enviar a imagem." });
     }
 
-    const form = new IncomingForm({
-        keepExtensions: true,
-    });
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const buffer = Buffer.concat(chunks);
 
-    form.parse(req, async (err, fields, files) => {
-        if (err) {
-            console.error("Erro no formidable:", err);
-            return res.status(500).json({ error: "Erro ao processar upload" });
-        }
-
-        if (!files.file) {
-            return res.status(400).json({ error: "Arquivo não enviado" });
-        }
-
-        const uploadedFile = files.file[0];
-        const tempPath = uploadedFile.filepath;
-
-        const fileName = "foto.jpg"; // Sempre sobrescreve
-        const uploadDir = path.join(process.cwd(), "public");
-
-        if (!fs.existsSync(uploadDir)) {
-            fs.mkdirSync(uploadDir);
-        }
-
-        const newPath = path.join(uploadDir, fileName);
-
-        fs.copyFileSync(tempPath, newPath);
+    try {
+        fs.writeFileSync(filePath, buffer);
+        const proto = req.headers["x-forwarded-proto"] || "https";
+        const host = req.headers.host;
+        const publicUrl = `${proto}://${host}/api/image?show=1`;
 
         return res.status(200).json({
-            url: `https://${req.headers.host}/${fileName}`
+            message: "Imagem salva (substituiu a anterior).",
+            url: publicUrl,
         });
-    });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ error: "Falha ao salvar a imagem." });
+    }
 }
