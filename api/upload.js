@@ -1,39 +1,43 @@
-import { writeFileSync, mkdirSync, existsSync } from "fs";
-import path from "path";
+import fs from "fs";
+
+export const config = {
+    api: { bodyParser: false }, // lemos o body bruto
+};
 
 export default async function handler(req, res) {
-    if (req.method !== "POST") {
-        return res.status(405).json({ error: "Método não permitido" });
+    const filePath = "/tmp/image.jpg";
+
+    // GET para visualizar a imagem: /api/image?show=1
+    if (req.method === "GET" && req.query.show) {
+        if (!fs.existsSync(filePath)) {
+            return res.status(404).json({ error: "Nenhuma imagem salva." });
+        }
+        const image = fs.readFileSync(filePath);
+        res.setHeader("Content-Type", "image/jpeg");
+        return res.send(image);
     }
 
+    // Apenas POST para upload
+    if (req.method !== "POST") {
+        return res.status(405).json({ error: "Use POST para enviar a imagem." });
+    }
+
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const buffer = Buffer.concat(chunks);
+
     try {
-        const { filename, base64 } = req.body;
-
-        if (!filename || !base64) {
-            return res.status(400).json({ error: "Envie filename e base64" });
-        }
-
-        // Remove prefixo "data:image/jpeg;base64,"
-        const base64Data = base64.replace(/^data:image\/\w+;base64,/, "");
-        const buffer = Buffer.from(base64Data, "base64");
-
-        const uploadDir = path.join(process.cwd(), "public", "uploads");
-
-        if (!existsSync(uploadDir)) {
-            mkdirSync(uploadDir, { recursive: true });
-        }
-
-        const filePath = path.join(uploadDir, filename);
-        writeFileSync(filePath, buffer);
-
-        const url = `https://${req.headers.host}/uploads/${filename}`;
+        fs.writeFileSync(filePath, buffer);
+        const proto = req.headers["x-forwarded-proto"] || "https";
+        const host = req.headers.host;
+        const publicUrl = `${proto}://${host}/api/image?show=1`;
 
         return res.status(200).json({
-            success: true,
-            url
+            message: "Imagem salva (substituiu a anterior).",
+            url: publicUrl,
         });
-
     } catch (err) {
-        return res.status(500).json({ error: String(err) });
+        console.error(err);
+        return res.status(500).json({ error: "Falha ao salvar a imagem." });
     }
 }
