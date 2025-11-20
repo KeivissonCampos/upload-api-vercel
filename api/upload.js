@@ -1,43 +1,24 @@
-import fs from "fs";
+import { put } from '@vercel/blob';
+import multiparty from 'multiparty';
 
 export const config = {
-    api: { bodyParser: false }, // lemos o body bruto
+    api: { bodyParser: false }
 };
 
-export default async function handler(req, res) {
-    const filePath = "/tmp/image.jpg";
+export default function handler(req, res) {
+    const form = new multiparty.Form();
 
-    // GET para visualizar a imagem: /api/image?show=1
-    if (req.method === "GET" && req.query.show) {
-        if (!fs.existsSync(filePath)) {
-            return res.status(404).json({ error: "Nenhuma imagem salva." });
-        }
-        const image = fs.readFileSync(filePath);
-        res.setHeader("Content-Type", "image/jpeg");
-        return res.send(image);
-    }
+    form.parse(req, async (err, fields, files) => {
+        const file = files.file[0];
 
-    // Apenas POST para upload
-    if (req.method !== "POST") {
-        return res.status(405).json({ error: "Use POST para enviar a imagem." });
-    }
-
-    const chunks = [];
-    for await (const chunk of req) chunks.push(chunk);
-    const buffer = Buffer.concat(chunks);
-
-    try {
-        fs.writeFileSync(filePath, buffer);
-        const proto = req.headers["x-forwarded-proto"] || "https";
-        const host = req.headers.host;
-        const publicUrl = `${proto}://${host}/api/image?show=1`;
-
-        return res.status(200).json({
-            message: "Imagem salva (substituiu a anterior).",
-            url: publicUrl,
+        // salva no Blob Storage da Vercel, arquivo sempre sobrescrito:
+        const blob = await put("foto-temporaria.jpg", file, {
+            access: "public",
+            addRandomSuffix: false  // sobrescreve
         });
-    } catch (err) {
-        console.error(err);
-        return res.status(500).json({ error: "Falha ao salvar a imagem." });
-    }
+
+        res.status(200).json({
+            url: blob.url
+        });
+    });
 }
